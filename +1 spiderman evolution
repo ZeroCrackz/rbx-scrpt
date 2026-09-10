@@ -1,0 +1,935 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+_G.ScriptGen = (_G.ScriptGen or 0) + 1
+local Session = _G.ScriptGen
+
+pcall(function()
+    if _G.RayfieldLib and _G.RayfieldLib.Destroy then
+        _G.RayfieldLib:Destroy()
+    end
+end)
+
+_G.KillAura = false
+_G.KillAuraUnloaded = false
+_G.KillAuraRange = 25
+_G.KillAuraDamage = 100000000
+_G.KillAuraDelay = 0.05
+_G.KillAuraHits = 5
+_G.InstantKill = false
+_G.WinCFrame = nil
+_G.WinStage = nil
+_G.AutoMagic = false
+_G.AutoRebirth = false
+_G.RebirthNotify = false
+_G.RebirthCooldown = 0
+_G.RebirthMaxWarned = false
+_G.AutoSuits = false
+_G.LastSuitPlacement = nil
+_G.EnemyCache = {}
+_G.EnemyCacheTime = 0
+_G.TPNoclip = false
+_G.AutoloadSetup = false
+
+local WIN_CFRAME = CFrame.new(2509.85156, 1.94499993, 2.02705956, 0, 0, 1, 0, 1, 0, -1, 0, 0)
+
+local REBIRTH_MAX = 45
+local REBIRTH_LEVELS = { 8, 12, 16, 21, 26, 31, 36, 42, 48, 54, 60, 67, 74, 81, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 169, 178, 187, 196, 205, 214, 224, 234, 244, 254, 265, 276, 287, 298, 310, 322, 334, 346, 358, 371, 384, 397, 410, 423, 437, 451, 465, 479, 493, 508, 523, 538, 553, 568, 584, 600, 616, 632, 648, 664, 680, 697, 714, 731, 748, 765, 783, 801, 819, 837, 855, 873, 891, 909, 927, 945, 963, 981, 999, 1017, 1035 }
+
+task.spawn(function()
+    local ok, mod = pcall(function()
+        return game:GetService("ReplicatedStorage").Modules.RebirthConfig
+    end)
+    if ok and mod then
+        local ok2, data = pcall(require, mod)
+        if ok2 and type(data) == "table" then
+            local max = tonumber(data.MaxRebirths or data.Max)
+            if max then REBIRTH_MAX = max end
+            local levels = data.LevelRequirements or data.Levels or data.Requirements
+            if type(levels) == "table" and #levels > 0 then REBIRTH_LEVELS = levels end
+        end
+    end
+end)
+
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+_G.RayfieldLib = Rayfield
+
+local Window = Rayfield:CreateWindow({
+    Name = "+1 Spiderman | Kroma",
+    LoadingTitle = "+1 Spiderman | Kroma",
+    LoadingSubtitle = "Rayfield UI",
+    ShowText = "Rayfield",
+    Theme = "Default",
+    DisableRayfieldPrompts = false,
+    DisableBuildWarnings = false,
+    ConfigurationSaving = {
+        Enabled = true,
+        FolderName = nil,
+        FileName = "KromaHub"
+    },
+    Discord = {
+        Enabled = false,
+        Invite = "",
+        RememberJoins = false
+    },
+    PlayerList = {
+        Enabled = true
+    },
+    KeySystem = false
+})
+
+local MenuToggleConnection = UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.RightControl and Session == _G.ScriptGen then
+        pcall(function()
+            Rayfield:SetVisibility(not Rayfield:IsVisible())
+        end)
+    end
+end)
+
+local CombatTab = Window:CreateTab("Auto-Farm", 4483362458)
+CombatTab:CreateSection("Kill Aura")
+
+CombatTab:CreateToggle({
+    Name = "Kill Aura [ON/OFF]",
+    CurrentValue = false,
+    Flag = "KillAuraToggle",
+    Callback = function(Value)
+        _G.KillAura = Value
+        if Value then
+            Rayfield:Notify({
+                Title = "Kill Aura Enabled",
+                Content = "Dealing massive damage within " .. _G.KillAuraRange .. " studs",
+                Duration = 3
+            })
+        else
+            Rayfield:Notify({
+                Title = "Kill Aura Disabled",
+                Content = "Stopped",
+                Duration = 2
+            })
+        end
+    end,
+})
+
+CombatTab:CreateSlider({
+    Name = "Range",
+    Range = {5, 100},
+    Increment = 1,
+    Suffix = "studs",
+    CurrentValue = 25,
+    Flag = "KillAuraRange",
+    Callback = function(Value)
+        _G.KillAuraRange = Value
+    end,
+})
+
+CombatTab:CreateSlider({
+    Name = "Damage per Hit (millions)",
+    Range = {1, 10000},
+    Increment = 1,
+    Suffix = "M",
+    CurrentValue = 100,
+    Flag = "KillAuraDamageM",
+    Callback = function(Value)
+        _G.KillAuraDamage = Value * 1000000
+    end,
+})
+
+CombatTab:CreateInput({
+    Name = "Exact Damage",
+    PlaceholderText = "e.g. 10000000000 (=10B)",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        local n = tonumber(Text)
+        if n and n >= 1 and n <= 100000000000 then
+            _G.KillAuraDamage = n
+        end
+    end,
+})
+
+CombatTab:CreateSlider({
+    Name = "Tick Delay",
+    Range = {1, 50},
+    Increment = 1,
+    Suffix = "cs",
+    CurrentValue = 5,
+    Flag = "KillAuraDelay",
+    Callback = function(Value)
+        _G.KillAuraDelay = Value / 100
+    end,
+})
+
+CombatTab:CreateSlider({
+    Name = "Hits per Tick",
+    Range = {1, 20},
+    Increment = 1,
+    Suffix = "hits",
+    CurrentValue = 5,
+    Flag = "KillAuraHits",
+    Callback = function(Value)
+        _G.KillAuraHits = Value
+    end,
+})
+
+CombatTab:CreateToggle({
+    Name = "Instant Kill",
+    CurrentValue = false,
+    Flag = "InstantKill",
+    Callback = function(Value)
+        _G.InstantKill = Value
+    end,
+})
+
+CombatTab:CreateSection("Magic Farm")
+
+local function GetMagicRemote()
+    local ok, remote = pcall(function()
+        return game:GetService("ReplicatedStorage").Remotes.GainMagicPower
+    end)
+    if ok and remote then return remote end
+    return nil
+end
+
+CombatTab:CreateToggle({
+    Name = "Auto Magic Power (~20 CPS) [ON/OFF]",
+    CurrentValue = false,
+    Flag = "AutoMagic",
+    Callback = function(Value)
+        _G.AutoMagic = Value
+        if Value then
+            if GetMagicRemote() then
+                Rayfield:Notify({ Title = "Auto Magic Enabled", Content = "Firing ~20 times per second", Duration = 2 })
+            else
+                Rayfield:Notify({ Title = "Remote Not Found", Content = "ReplicatedStorage.Remotes.GainMagicPower is missing", Duration = 4 })
+            end
+        else
+            Rayfield:Notify({ Title = "Auto Magic Disabled", Content = "Stopped", Duration = 2 })
+        end
+    end,
+})
+
+CombatTab:CreateSection("Auto Rebirth")
+
+local function GetRebirths()
+    local ok, mult = pcall(function()
+        return LocalPlayer:GetAttribute("RebirthMultiplier")
+    end)
+    if not ok or mult == nil then return nil end
+    local n = tonumber(mult)
+    if not n then return nil end
+    return math.max(0, math.floor(n - 1))
+end
+
+local function GetLevel()
+    local ok, lvl = pcall(function()
+        local stats = LocalPlayer:FindFirstChild("leaderstats")
+        local level = stats and stats:FindFirstChild("Level")
+        return level and level.Value or nil
+    end)
+    if not ok or lvl == nil then return nil end
+    return tonumber(lvl)
+end
+
+local function GetRebirthRemote()
+    local ok, remote = pcall(function()
+        return game:GetService("ReplicatedStorage").Remotes.Rebirth
+    end)
+    if ok and remote then return remote end
+    return nil
+end
+
+local function GetRequiredLevel(rebirths)
+    if rebirths >= REBIRTH_MAX then return nil end
+    return REBIRTH_LEVELS[rebirths + 1]
+end
+
+CombatTab:CreateToggle({
+    Name = "Auto Rebirth [ON/OFF]",
+    CurrentValue = false,
+    Flag = "AutoRebirth",
+    Callback = function(Value)
+        _G.AutoRebirth = Value
+        if Value then
+            Rayfield:Notify({ Title = "Auto Rebirth Enabled", Content = "Rebirths=" .. tostring(GetRebirths()) .. " Level=" .. tostring(GetLevel()) .. " Max=" .. tostring(REBIRTH_MAX) .. " (auto)", Duration = 3 })
+        else
+            Rayfield:Notify({ Title = "Auto Rebirth Disabled", Content = "Stopped", Duration = 2 })
+        end
+    end,
+})
+
+CombatTab:CreateToggle({
+    Name = "Rebirth Progress [ON/OFF]",
+    CurrentValue = false,
+    Flag = "RebirthNotify",
+    Callback = function(Value)
+        _G.RebirthNotify = Value
+    end,
+})
+
+CombatTab:CreateSection("Auto Suits")
+
+local function GetTrophies()
+    local ok, v = pcall(function() return LocalPlayer:GetAttribute("Trophies") end)
+    if not ok or v == nil then return nil end
+    return tonumber(v)
+end
+
+local function GetSuitsFolder()
+    return workspace:FindFirstChild("SuitesButtons")
+        or workspace:FindFirstChild("SuitsButtons")
+end
+
+local function GetBestSuit(trophies)
+    local folder = GetSuitsFolder()
+    if not folder then return nil end
+    local best = nil
+    for _, child in ipairs(folder:GetChildren()) do
+        if child:IsA("Model") then
+            local placement = child:GetAttribute("SuitPlacement")
+            if type(placement) ~= "number" then
+                placement = tonumber(string.match(child.Name, "^SuiteButton(%d+)$"))
+            end
+            if type(placement) == "number" and placement >= 1 and placement <= 30 then
+                local cost = tonumber(child:GetAttribute("SuitTrophyCost"))
+                if cost == nil then
+                    cost = (placement == 1) and 0 or nil
+                end
+                if cost ~= nil and cost <= trophies then
+                    if not best or placement > best.placement then
+                        local touchPart = child:FindFirstChild("TouchPart", true)
+                        if touchPart and touchPart:IsA("BasePart") then
+                            best = {
+                                placement = placement,
+                                button = child,
+                                touchPart = touchPart,
+                                cost = cost,
+                                name = child:GetAttribute("SuitName") or child.Name,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function FireSuitTouch(touchPart)
+    if typeof(firetouchinterest) ~= "function" then
+        Rayfield:Notify({ Title = "Executor Not Supported", Content = "firetouchinterest() is missing", Duration = 4 })
+        return false
+    end
+    local char = LocalPlayer.Character
+    local hrp = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head"))
+    if not hrp then return false end
+    pcall(function()
+        firetouchinterest(hrp, touchPart, 0)
+        task.wait(0.1)
+        firetouchinterest(hrp, touchPart, 1)
+    end)
+    return true
+end
+
+local function GetEquippedPlacement()
+    local raw = nil
+    pcall(function()
+        raw = LocalPlayer:GetAttribute("EquippedSuit")
+        if raw == nil then raw = LocalPlayer:GetAttribute("AppliedSuit") end
+    end)
+    if raw == nil then return nil end
+    if tonumber(raw) then return math.floor(tonumber(raw)) end
+    local folder = GetSuitsFolder()
+    if not folder then return nil end
+    local function norm(s)
+        s = string.lower(tostring(s))
+        if s == "anti ock" or s == "anti-ock" then return "ock spider" end
+        if s == "cosmic" then return "cosmic" end
+        return s
+    end
+    local target = norm(raw)
+    for _, child in ipairs(folder:GetChildren()) do
+        if child:IsA("Model") then
+            local placement = child:GetAttribute("SuitPlacement")
+            if type(placement) ~= "number" then
+                placement = tonumber(string.match(child.Name, "^SuiteButton(%d+)$"))
+            end
+            if type(placement) == "number" then
+                local nm = child:GetAttribute("SuitName") or child.Name
+                if norm(nm) == target or string.lower(child.Name) == target then
+                    return placement
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function TryUpgradeSuit(manual)
+    local trophies = GetTrophies()
+    if trophies == nil then
+        if manual then Rayfield:Notify({ Title = "Suits", Content = "Trophies attribute not found", Duration = 3 }) end
+        return
+    end
+    local best = GetBestSuit(trophies)
+    if not best then
+        if manual then Rayfield:Notify({ Title = "Suits", Content = "Nothing affordable yet", Duration = 3 }) end
+        return
+    end
+    local equipped = GetEquippedPlacement()
+    if equipped == best.placement then
+        local changed = (_G.LastSuitPlacement ~= equipped)
+        _G.LastSuitPlacement = equipped
+        if manual or changed then
+            Rayfield:Notify({ Title = "Suit Equipped", Content = "N" .. best.placement .. " " .. tostring(best.name), Duration = 3 })
+        end
+        return
+    end
+    FireSuitTouch(best.touchPart)
+    task.wait(0.3)
+    FireSuitTouch(best.touchPart)
+    if manual then
+        Rayfield:Notify({ Title = "Suits", Content = "Equipping N" .. best.placement .. " " .. tostring(best.name) .. "...", Duration = 3 })
+    end
+end
+
+CombatTab:CreateToggle({
+    Name = "Auto Upgrade Suits [ON/OFF]",
+    CurrentValue = false,
+    Flag = "AutoSuits",
+    Callback = function(Value)
+        _G.AutoSuits = Value
+        if Value then
+            Rayfield:Notify({ Title = "Auto Suits Enabled", Content = "Trophies=" .. tostring(GetTrophies()), Duration = 2 })
+            TryUpgradeSuit(false)
+        else
+            Rayfield:Notify({ Title = "Auto Suits Disabled", Content = "Stopped", Duration = 2 })
+        end
+    end,
+})
+
+CombatTab:CreateButton({
+    Name = "Upgrade Suit Now",
+    Callback = function()
+        TryUpgradeSuit(true)
+    end,
+})
+
+local PlayerTab = Window:CreateTab("Teleport", 4483362458)
+PlayerTab:CreateSection("Teleport")
+
+local function GetLatestStage()
+    local stages = workspace:FindFirstChild("Stages")
+    if not stages then return nil, nil end
+    local maxN = nil
+    for _, child in ipairs(stages:GetChildren()) do
+        local n = tonumber(string.match(child.Name, "^Stage(%d+)$"))
+        if n and (not maxN or n > maxN) then maxN = n end
+    end
+    if not maxN then return nil, nil end
+    local folder = stages:FindFirstChild("Stage" .. (maxN - 1)) or stages:FindFirstChild("Stage" .. maxN)
+    if not folder then return nil, nil end
+    return folder, folder.Name
+end
+
+local function FindStageWinButton(folder)
+    if not folder then return nil end
+    local direct = folder:FindFirstChild("WinButton")
+    if direct then return direct end
+    return folder:FindFirstChild("WinButton", true)
+end
+
+local function GetModelPivot(target)
+    if target:IsA("BasePart") then
+        return target.CFrame
+    elseif target:IsA("Model") then
+        local ok, cf = pcall(function() return target.WorldPivot end)
+        if ok and cf and cf.Position.Magnitude > 1 then return cf end
+        if target.PrimaryPart then return target.PrimaryPart.CFrame end
+        local part = target:FindFirstChildWhichIsA("BasePart", true)
+        if part then return part.CFrame end
+        local ok2, cf2 = pcall(function() return target:GetBoundingBox() end)
+        if ok2 and cf2 then return cf2 end
+    end
+    return nil
+end
+
+local function Unfreeze()
+    pcall(function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hrp then
+            hrp.Anchored = false
+            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        end
+        if hum then
+            hum.Sit = false
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+    end)
+end
+
+Unfreeze()
+
+local TPStatus = PlayerTab:CreateParagraph({Title = "TP Status", Content = "Ready. Press X."})
+
+local function SetTPStatus(text)
+    print("[TP] " .. tostring(text))
+    pcall(function() TPStatus:Set({Title = "TP Status", Content = tostring(text)}) end)
+end
+
+local function TeleportToCF(cf)
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        SetTPStatus("Failed: no character")
+        return false
+    end
+    local dest = cf + Vector3.new(3, 3, 0)
+    SetTPStatus("Going to " .. tostring(dest.Position))
+    task.spawn(function()
+        _G.TPNoclip = true
+        task.spawn(function()
+            local start = os.clock()
+            while os.clock() - start < 6 and Session == _G.ScriptGen do
+                pcall(function()
+                    local c = LocalPlayer.Character
+                    if c then
+                        for _, p in ipairs(c:GetDescendants()) do
+                            if p:IsA("BasePart") then
+                                p.CanCollide = false
+                                p.Anchored = false
+                            end
+                        end
+                        local hum = c:FindFirstChildOfClass("Humanoid")
+                        if hum then hum.Sit = false end
+                    end
+                end)
+                task.wait(0.1)
+            end
+            _G.TPNoclip = false
+            pcall(function()
+                local c = LocalPlayer.Character
+                if c then
+                    local hum = c:FindFirstChildOfClass("Humanoid")
+                    if hum then hum:ChangeState(Enum.HumanoidStateType.GettingUp) end
+                end
+            end)
+        end)
+        local startPos = hrp.Position
+        local dist = (dest.Position - startPos).Magnitude
+        local steps = math.clamp(math.ceil(dist / 250), 1, 12)
+        SetTPStatus(math.floor(dist) .. " studs, " .. steps .. " steps...")
+        for i = 1, steps do
+            if _G.KillAuraUnloaded or Session ~= _G.ScriptGen then
+                SetTPStatus("Cancelled")
+                break
+            end
+            local c = LocalPlayer.Character
+            local h = c and c:FindFirstChild("HumanoidRootPart")
+            if not h then SetTPStatus("Character lost, stopped") break end
+            if i < steps then
+                local mid = startPos:Lerp(dest.Position, i / steps) + Vector3.new(0, 40, 0)
+                pcall(function() c:PivotTo(CFrame.new(mid)) end)
+                SetTPStatus("Step " .. i .. "/" .. steps)
+                task.wait(0.35)
+            else
+                pcall(function() c:PivotTo(dest) end)
+                pcall(function() h.CFrame = dest end)
+            end
+        end
+        task.wait(0.4)
+        Unfreeze()
+        task.wait(0.5)
+        pcall(function()
+            local c2 = LocalPlayer.Character
+            local h2 = c2 and c2:FindFirstChild("HumanoidRootPart")
+            if not h2 then SetTPStatus("Cannot verify (no character)") return end
+            local d = (h2.Position - dest.Position).Magnitude
+            SetTPStatus("Arrival distance: " .. math.floor(d) .. " studs")
+            if d > 20 then
+                SetTPStatus("Missed, retrying...")
+                pcall(function() c2:PivotTo(dest) end)
+                pcall(function() h2.CFrame = dest end)
+                Unfreeze()
+                task.wait(0.5)
+                local d2 = (h2.Position - dest.Position).Magnitude
+                SetTPStatus("After retry: " .. math.floor(d2) .. " studs")
+                if d2 > 20 then
+                    Rayfield:Notify({ Title = "Teleport Blocked", Content = "The game is pulling you back", Duration = 5 })
+                else
+                    Rayfield:Notify({ Title = "Teleported", Content = "Arrived at " .. tostring(_G.WinStage or "Win"), Duration = 3 })
+                end
+            else
+                Rayfield:Notify({ Title = "Teleported", Content = "Arrived at " .. tostring(_G.WinStage or "Win"), Duration = 3 })
+            end
+        end)
+    end)
+    return true
+end
+
+local function TeleportToWin()
+    local folder, stageName = GetLatestStage()
+    if folder then
+        local btn = FindStageWinButton(folder)
+        if btn then
+            local cf = GetModelPivot(btn)
+            if cf then
+                _G.WinCFrame = cf
+                _G.WinStage = stageName
+                TeleportToCF(cf)
+                Rayfield:Notify({ Title = "Teleporting...", Content = "Heading to " .. tostring(stageName) .. " (auto)", Duration = 3 })
+                return
+            end
+        end
+    end
+    if _G.WinCFrame then
+        TeleportToCF(_G.WinCFrame)
+        Rayfield:Notify({ Title = "Teleporting...", Content = "Heading to " .. tostring(_G.WinStage or "Win") .. " (cached)", Duration = 3 })
+        return
+    end
+    TeleportToCF(WIN_CFRAME)
+    _G.WinCFrame = WIN_CFRAME
+    Rayfield:Notify({ Title = "Teleporting...", Content = "Heading to Win (fallback)", Duration = 3 })
+end
+
+PlayerTab:CreateButton({
+    Name = "Teleport to Win (Auto Stage)",
+    Callback = function()
+        TeleportToWin()
+    end,
+})
+
+PlayerTab:CreateKeybind({
+    Name = "Teleport Key",
+    CurrentKeybind = "X",
+    HoldToInteract = false,
+    Flag = "TPWinKeybind",
+    Callback = function()
+        TeleportToWin()
+    end,
+})
+
+PlayerTab:CreateButton({
+    Name = "Unstuck",
+    Callback = function()
+        Unfreeze()
+        Rayfield:Notify({ Title = "Unstuck", Content = "Velocity reset", Duration = 2 })
+    end,
+})
+
+local MiscTab = Window:CreateTab("Misc", 4483362458)
+MiscTab:CreateSection("Script")
+
+MiscTab:CreateButton({
+    Name = "Unload",
+    Callback = function()
+        _G.KillAura = false
+        _G.KillAuraUnloaded = true
+        _G.InstantKill = false
+        _G.AutoMagic = false
+        _G.AutoRebirth = false
+        _G.RebirthNotify = false
+        _G.AutoSuits = false
+        _G.TPNoclip = false
+        _G.WinStage = nil
+        pcall(function() MenuToggleConnection:Disconnect() end)
+        pcall(function()
+            Rayfield:Destroy()
+        end)
+    end,
+})
+
+MiscTab:CreateSection("Setup Preset")
+
+local PresetName = "default"
+local AUTOLOAD_FILE = "KromaHub_autoload.txt"
+
+local function PresetFile(name)
+    return "KromaHub_" .. tostring(name) .. ".json"
+end
+
+local function HasFS()
+    return typeof(writefile) == "function"
+        and typeof(readfile) == "function"
+        and typeof(isfile) == "function"
+end
+
+local function CollectSetup()
+    return {
+        KillAura = _G.KillAura and true or false,
+        Range = _G.KillAuraRange,
+        DamageM = math.clamp(math.floor((_G.KillAuraDamage or 0) / 1000000 + 0.5), 1, 10000),
+        DelayCs = math.clamp(math.floor((_G.KillAuraDelay or 0.05) * 100 + 0.5), 1, 50),
+        Hits = _G.KillAuraHits,
+        Instant = _G.InstantKill and true or false,
+        Magic = _G.AutoMagic and true or false,
+        Rebirth = _G.AutoRebirth and true or false,
+        RebirthInfo = _G.RebirthNotify and true or false,
+        Suits = _G.AutoSuits and true or false,
+    }
+end
+
+local function ApplySetup(data)
+    if type(data) ~= "table" then return false end
+    local applied = false
+    local muted = Rayfield.Notify
+    Rayfield.Notify = function() end
+    pcall(function()
+        local function setToggle(flag, v)
+            local el = Rayfield.Flags and Rayfield.Flags[flag]
+            if el then el:Set(v and true or false) end
+        end
+        local function setSlider(flag, v)
+            local el = Rayfield.Flags and Rayfield.Flags[flag]
+            if el and type(v) == "number" then el:Set(v) end
+        end
+        if data.Range then setSlider("KillAuraRange", data.Range) end
+        if data.DamageM then setSlider("KillAuraDamageM", data.DamageM) end
+        if data.DelayCs then setSlider("KillAuraDelay", data.DelayCs) end
+        if data.Hits then setSlider("KillAuraHits", data.Hits) end
+        setToggle("KillAuraToggle", data.KillAura)
+        setToggle("InstantKill", data.Instant)
+        setToggle("AutoMagic", data.Magic)
+        setToggle("AutoRebirth", data.Rebirth)
+        setToggle("RebirthNotify", data.RebirthInfo)
+        setToggle("AutoSuits", data.Suits)
+        applied = true
+    end)
+    Rayfield.Notify = muted
+    return applied
+end
+
+local function LoadPreset(name)
+    if not HasFS() then
+        Rayfield:Notify({ Title = "No File Access", Content = "Your executor has no writefile/readfile", Duration = 4 })
+        return false
+    end
+    local ok, data = pcall(function()
+        return game:GetService("HttpService"):JSONDecode(readfile(PresetFile(name)))
+    end)
+    if not ok or type(data) ~= "table" then
+        Rayfield:Notify({ Title = "Preset Not Found", Content = "No saved setup named '" .. tostring(name) .. "'", Duration = 4 })
+        return false
+    end
+    task.wait(0.5)
+    if ApplySetup(data) then
+        Rayfield:Notify({ Title = "Setup Loaded", Content = "Preset: " .. tostring(name), Duration = 4 })
+        return true
+    end
+    return false
+end
+
+MiscTab:CreateInput({
+    Name = "Preset Name",
+    PlaceholderText = "default",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        if Text and Text ~= "" then
+            PresetName = Text
+        end
+    end,
+})
+
+MiscTab:CreateButton({
+    Name = "Save Setup",
+    Callback = function()
+        if not HasFS() then
+            Rayfield:Notify({ Title = "No File Access", Content = "Your executor has no writefile", Duration = 4 })
+            return
+        end
+        local ok = pcall(function()
+            writefile(PresetFile(PresetName), game:GetService("HttpService"):JSONEncode(CollectSetup()))
+        end)
+        if ok then
+            if _G.AutoloadSetup then
+                pcall(function() writefile(AUTOLOAD_FILE, PresetName) end)
+            end
+            Rayfield:Notify({ Title = "Setup Saved", Content = "Preset: " .. tostring(PresetName), Duration = 3 })
+        else
+            Rayfield:Notify({ Title = "Save Failed", Content = "Could not write preset file", Duration = 4 })
+        end
+    end,
+})
+
+MiscTab:CreateButton({
+    Name = "Load Setup",
+    Callback = function()
+        LoadPreset(PresetName)
+    end,
+})
+
+MiscTab:CreateToggle({
+    Name = "Autoload Setup on Execute [ON/OFF]",
+    CurrentValue = false,
+    Flag = "AutoloadSetup",
+    Callback = function(Value)
+        _G.AutoloadSetup = Value
+        if not HasFS() then
+            Rayfield:Notify({ Title = "No File Access", Content = "Autoload needs writefile/readfile", Duration = 4 })
+            return
+        end
+        pcall(function()
+            if Value then
+                writefile(AUTOLOAD_FILE, PresetName)
+                Rayfield:Notify({ Title = "Autoload Enabled", Content = "Preset '" .. tostring(PresetName) .. "' will load on execute", Duration = 3 })
+            else
+                if typeof(delfile) == "function" then
+                    if isfile(AUTOLOAD_FILE) then delfile(AUTOLOAD_FILE) end
+                else
+                    writefile(AUTOLOAD_FILE, "")
+                end
+                Rayfield:Notify({ Title = "Autoload Disabled", Content = "Stopped", Duration = 2 })
+            end
+        end)
+    end,
+})
+
+local function RefreshEnemyCache()
+    local char = LocalPlayer.Character
+    local list = {}
+    pcall(function()
+        for _, model in ipairs(workspace:GetDescendants()) do
+            if model:IsA("Model") and model ~= char and not Players:GetPlayerFromCharacter(model) then
+                local hum = model:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 and not model:FindFirstChildOfClass("ForceField") then
+                    local root = model:FindFirstChild("HumanoidRootPart")
+                        or model:FindFirstChild("Head")
+                        or model.PrimaryPart
+                    if root then
+                        table.insert(list, {hum = hum, root = root})
+                    end
+                end
+            end
+        end
+    end)
+    _G.EnemyCache = list
+    _G.EnemyCacheTime = os.clock()
+end
+
+task.spawn(function()
+    while not _G.KillAuraUnloaded and Session == _G.ScriptGen do
+        task.wait(_G.KillAuraDelay)
+        if _G.KillAura then
+            if os.clock() - (_G.EnemyCacheTime or 0) > 1.0 then
+                RefreshEnemyCache()
+            end
+            pcall(function()
+                local char = LocalPlayer.Character
+                if not char then return end
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if not hrp then return end
+                local hrpPos = hrp.Position
+                local range = _G.KillAuraRange
+                local dmg = _G.KillAuraDamage
+                local hits = _G.KillAuraHits or 1
+                local instant = _G.InstantKill
+                for _, e in ipairs(_G.EnemyCache) do
+                    local hum, root = e.hum, e.root
+                    if hum.Parent and root.Parent and hum.Health > 0 then
+                        if (hrpPos - root.Position).Magnitude <= range then
+                            pcall(function()
+                                if instant then
+                                    hum.Health = 0
+                                else
+                                    for i = 1, hits do
+                                        hum:TakeDamage(dmg)
+                                        if hum.Health <= 0 then break end
+                                    end
+                                end
+                            end)
+                        end
+                    end
+                end
+            end)
+        else
+            task.wait(0.5)
+        end
+    end
+end)
+
+task.spawn(function()
+    local remote = GetMagicRemote()
+    while not _G.KillAuraUnloaded and Session == _G.ScriptGen do
+        if _G.AutoMagic then
+            if not remote then remote = GetMagicRemote() end
+            if remote then
+                pcall(function()
+                    remote:FireServer()
+                end)
+                task.wait(0.05)
+            else
+                task.wait(1)
+            end
+        else
+            task.wait(0.2)
+        end
+    end
+end)
+
+task.spawn(function()
+    local lastInfo = 0
+    while not _G.KillAuraUnloaded and Session == _G.ScriptGen do
+        if _G.AutoRebirth then
+            local ok = pcall(function()
+                local rb = GetRebirths()
+                local lv = GetLevel()
+                if rb == nil or lv == nil then return end
+                local req = GetRequiredLevel(rb)
+                if req == nil then
+                    _G.RebirthMaxWarned = true
+                    return
+                end
+                _G.RebirthMaxWarned = false
+                if _G.RebirthNotify and os.clock() - lastInfo > 10 then
+                    lastInfo = os.clock()
+                    Rayfield:Notify({ Title = "Rebirth", Content = "Level " .. lv .. " / " .. req .. " (rebirths=" .. rb .. ")", Duration = 3 })
+                end
+                if lv >= req and os.clock() - (_G.RebirthCooldown or 0) > 3 then
+                    local remote = GetRebirthRemote()
+                    if remote then
+                        _G.RebirthCooldown = os.clock()
+                        remote:FireServer()
+                        Rayfield:Notify({ Title = "REBIRTH!", Content = "Level " .. lv .. " reached, rebirth " .. (rb + 1), Duration = 4 })
+                    end
+                end
+            end)
+            task.wait(0.5)
+        else
+            task.wait(1)
+        end
+    end
+end)
+
+task.spawn(function()
+    while not _G.KillAuraUnloaded and Session == _G.ScriptGen do
+        if _G.AutoSuits then
+            pcall(function()
+                TryUpgradeSuit(false)
+            end)
+            task.wait(1.5)
+        else
+            task.wait(1)
+        end
+    end
+end)
+
+Rayfield:LoadConfiguration()
+
+task.spawn(function()
+    pcall(function()
+        if not HasFS() then return end
+        if not isfile(AUTOLOAD_FILE) then return end
+        local name = readfile(AUTOLOAD_FILE)
+        if not name or name == "" then return end
+        if not isfile(PresetFile(name)) then return end
+        local data = game:GetService("HttpService"):JSONDecode(readfile(PresetFile(name)))
+        task.wait(1)
+        if Session == _G.ScriptGen and ApplySetup(data) then
+            Rayfield:Notify({ Title = "Setup Autoloaded", Content = "Preset: " .. tostring(name), Duration = 4 })
+        end
+    end)
+end)
