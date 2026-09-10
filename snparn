@@ -1,4 +1,4 @@
--- [Polo Sniper Arena - Fixed ESP + Unload]
+-- [Sniper Arena - Fixed ESP + Unload]
 local v0 = loadstring(game:HttpGet("https://sirius.menu/rayfield"))();
 
 local Players = game:GetService("Players");
@@ -10,7 +10,7 @@ local LocalPlayer = Players.LocalPlayer;
 local Mouse = LocalPlayer:GetMouse();
 
 -- ===== CONFIG =====
-local CONFIG_FOLDER = "PoloSniperFinal"
+local CONFIG_FOLDER = "SniperArenaZC"
 local CONFIG_FILE = CONFIG_FOLDER.."/autoload.json"
 local AUTOLOAD_DEFAULT = {
     Aimbot = false, AimbotSmooth = 1, TriggerBot = false,
@@ -43,9 +43,9 @@ local drawingsToClean = {};
 -- =================
 
 local v1 = v0:CreateWindow({
-    Name = "Polo Sniper Arena",
+    Name = "Sniper Arena | Kroma",
     LoadingTitle = "Only Best Cheats",
-    LoadingSubtitle = "by polo",
+    LoadingSubtitle = "by Kroma",
     ConfigurationSaving = { Enabled = true, FolderName = "PoloSniperFinal", FileName = "BestCheatsConfig" }
 });
 
