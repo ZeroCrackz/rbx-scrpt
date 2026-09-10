@@ -1,0 +1,261 @@
+-- [Polo Sniper Arena - Fixed ESP + Unload]
+local v0 = loadstring(game:HttpGet("https://sirius.menu/rayfield"))();
+
+local Players = game:GetService("Players");
+local RunService = game:GetService("RunService");
+local UserInputService = game:GetService("UserInputService");
+local HttpService = game:GetService("HttpService");
+local Camera = workspace.CurrentCamera;
+local LocalPlayer = Players.LocalPlayer;
+local Mouse = LocalPlayer:GetMouse();
+
+-- ===== CONFIG =====
+local CONFIG_FOLDER = "PoloSniperFinal"
+local CONFIG_FILE = CONFIG_FOLDER.."/autoload.json"
+local AUTOLOAD_DEFAULT = {
+    Aimbot = false, AimbotSmooth = 1, TriggerBot = false,
+    Hitbox = false, HitboxSize = 5,
+    ESP_Box = true, ESP_Skeleton = false, ESP_Line = false, ESP_Distance = false,
+    VisCheck = true, NoRecoil = true, NoSpread = true, FastReload = false,
+    Speed = false, SpeedVal = 0.05, Jump = false, JumpVal = 70, AutoStrafe = false,
+    AutoSave = true
+};
+local options = {}
+for k,v in pairs(AUTOLOAD_DEFAULT) do options[k] = v end
+pcall(function() if type(isfolder)=="function" and not isfolder(CONFIG_FOLDER) then makefolder(CONFIG_FOLDER) end end)
+local function saveConfig()
+    pcall(function() if type(writefile)=="function" then writefile(CONFIG_FILE, HttpService:JSONEncode(options)) end end)
+end
+local function loadConfig()
+    pcall(function()
+        if type(isfile)=="function" and type(readfile)=="function" and isfile(CONFIG_FILE) then
+            local data = HttpService:JSONDecode(readfile(CONFIG_FILE))
+            for k,v in pairs(data) do if options[k] ~= nil then options[k] = v end end
+        end
+    end)
+end
+loadConfig()
+local function autoSave() if options.AutoSave then saveConfig() end end
+
+local unloaded = false
+local renderConn = nil
+local drawingsToClean = {};
+-- =================
+
+local v1 = v0:CreateWindow({
+    Name = "Polo Sniper Arena",
+    LoadingTitle = "Only Best Cheats",
+    LoadingSubtitle = "by polo",
+    ConfigurationSaving = { Enabled = true, FolderName = "PoloSniperFinal", FileName = "BestCheatsConfig" }
+});
+
+local tabCombat = v1:CreateTab("🎯 COMBAT");
+local tabVisuals = v1:CreateTab("👁️ VISUALS");
+local tabWeapon = v1:CreateTab("🔫 WEAPON");
+local tabMovement = v1:CreateTab("🏃 MOVEMENT");
+local tabConfig = v1:CreateTab("⚙️ CONFIG");
+
+tabCombat:CreateToggle({ Name = "Aimbot (Right Click)", CurrentValue = options.Aimbot, Flag = "Aimbot", Callback = function(v) options.Aimbot = v; autoSave() end });
+tabCombat:CreateSlider({ Name = "Aimbot Smoothness", Range = {1,10}, Increment = 0.1, CurrentValue = options.AimbotSmooth, Flag = "AimbotSmooth", Callback = function(v) options.AimbotSmooth = v; autoSave() end });
+tabCombat:CreateToggle({ Name = "Trigger Assist (Auto Fire)", CurrentValue = options.TriggerBot, Flag = "TriggerBot", Callback = function(v) options.TriggerBot = v; autoSave() end });
+tabCombat:CreateToggle({ Name = "Hitbox Expand (Big Head)", CurrentValue = options.Hitbox, Flag = "Hitbox", Callback = function(v) options.Hitbox = v; autoSave() end });
+tabCombat:CreateSlider({ Name = "Hitbox Size", Range = {1,10}, Increment = 0.1, CurrentValue = options.HitboxSize, Flag = "HitboxSize", Callback = function(v) options.HitboxSize = v; autoSave() end });
+
+tabVisuals:CreateToggle({ Name = "Enemy ESP (Box)", CurrentValue = options.ESP_Box, Flag = "ESP_Box", Callback = function(v) options.ESP_Box = v; autoSave() end });
+tabVisuals:CreateToggle({ Name = "Skeleton ESP", CurrentValue = options.ESP_Skeleton, Flag = "ESP_Skeleton", Callback = function(v) options.ESP_Skeleton = v; autoSave() end });
+tabVisuals:CreateToggle({ Name = "Tracer ESP (Lines)", CurrentValue = options.ESP_Line, Flag = "ESP_Line", Callback = function(v) options.ESP_Line = v; autoSave() end });
+tabVisuals:CreateToggle({ Name = "Distance ESP", CurrentValue = options.ESP_Distance, Flag = "ESP_Distance", Callback = function(v) options.ESP_Distance = v; autoSave() end });
+tabVisuals:CreateToggle({ Name = "Visible Check", CurrentValue = options.VisCheck, Flag = "VisCheck", Callback = function(v) options.VisCheck = v; autoSave() end });
+
+tabWeapon:CreateToggle({ Name = "No Recoil", CurrentValue = options.NoRecoil, Flag = "NoRecoil", Callback = function(v) options.NoRecoil = v; autoSave() end });
+tabWeapon:CreateToggle({ Name = "No Spread", CurrentValue = options.NoSpread, Flag = "NoSpread", Callback = function(v) options.NoSpread = v; autoSave() end });
+tabWeapon:CreateToggle({ Name = "Fast Reload", CurrentValue = options.FastReload, Flag = "FastReload", Callback = function(v) options.FastReload = v; autoSave() end });
+
+tabMovement:CreateLabel("⚠️ Speed Limit: Max 0.1 (CFrame)");
+tabMovement:CreateToggle({ Name = "CFrame Speed (Fix)", CurrentValue = options.Speed, Flag = "Speed", Callback = function(v) options.Speed = v; autoSave() end });
+tabMovement:CreateSlider({ Name = "Speed Value", Range = {0.01,0.1}, Increment = 0.01, CurrentValue = options.SpeedVal, Flag = "SpeedVal", Callback = function(v) options.SpeedVal = v; autoSave() end });
+tabMovement:CreateToggle({ Name = "Jump Boost", CurrentValue = options.Jump, Flag = "Jump", Callback = function(v) options.Jump = v; autoSave() end });
+tabMovement:CreateSlider({ Name = "Jump Power", Range = {50,120}, Increment = 1, CurrentValue = options.JumpVal, Flag = "JumpVal", Callback = function(v) options.JumpVal = v; autoSave() end });
+tabMovement:CreateToggle({ Name = "Auto Strafe", CurrentValue = options.AutoStrafe, Flag = "AutoStrafe", Callback = function(v) options.AutoStrafe = v; autoSave() end });
+
+tabConfig:CreateToggle({ Name = "Auto-Save Config", CurrentValue = options.AutoSave, Flag = "AutoSave", Callback = function(v) options.AutoSave = v; saveConfig() end });
+tabConfig:CreateButton({ Name = "💾 Save Now", Callback = function() saveConfig() end });
+
+-- --- DRAW UTILS ---
+local function createLine(pos1, pos2, color)
+    local line = Drawing.new("Line");
+    line.Visible = true; line.Thickness = 1;
+    line.Color = color or Color3.fromRGB(255,0,0);
+    line.From = pos1; line.To = pos2;
+    return line;
+end
+local function createText(pos, text, color)
+    local t = Drawing.new("Text");
+    t.Visible = true; t.Center = true; t.Outline = true;
+    t.Size = 14; t.Color = color or Color3.fromRGB(255,255,255);
+    t.Position = pos; t.Text = text;
+    return t;
+end
+
+local function getBestTarget()
+    local targetPlayer = nil; local bestDistance = 7100;
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+            local isVis = true;
+            if options.VisCheck then
+                pcall(function()
+                    local parts = Camera:GetPartsObscuringTarget({player.Character.Head.Position}, {LocalPlayer.Character, player.Character});
+                    if #parts > 0 then isVis = false end
+                end)
+            end
+            if isVis then
+                local sp, onS = Camera:WorldToViewportPoint(player.Character.Head.Position);
+                if onS then
+                    local mp = UserInputService:GetMouseLocation();
+                    local d = (Vector2.new(sp.X, sp.Y) - mp).Magnitude;
+                    if d < bestDistance then bestDistance = d; targetPlayer = player end
+                end
+            end
+        end
+    end
+    return targetPlayer;
+end
+
+local function applyWeaponMods()
+    pcall(function()
+        local tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Tool");
+        if tool then
+            for _, d in pairs(tool:GetDescendants()) do
+                if d:IsA("NumberValue") or d:IsA("IntValue") or d:IsA("DoubleConstrainedValue") then
+                    local n = d.Name:lower();
+                    if options.NoRecoil and (n:find("recoil") or n:find("kick")) then d.Value = 0 end
+                    if options.NoSpread and (n:find("spread") or n:find("accuracy")) then d.Value = 280 end
+                    if options.FastReload and (n:find("reload") or n:find("time")) then d.Value = 0.05 end
+                end
+            end
+        end
+    end);
+end
+
+-- --- UNLOAD ---
+local function unloadScript()
+    if unloaded then return end
+    unloaded = true;
+    pcall(function() if renderConn then renderConn:Disconnect() end end)
+    pcall(function()
+        for _, p in pairs(Players:GetPlayers()) do
+            if p.Character then
+                local e = p.Character:FindFirstChild("PoloESP"); if e then e:Destroy() end
+                local h = p.Character:FindFirstChild("Head");
+                if h then h.Size = Vector3.new(2,1,1); h.Transparency = 0; h.CanCollide = false end
+            end
+        end
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.JumpPower = 50;
+        end
+    end)
+    for _, d in pairs(drawingsToClean) do pcall(function() d:Remove() end) end
+    drawingsToClean = {};
+    pcall(function() v0:Destroy() end)
+end
+
+tabConfig:CreateButton({ Name = "❌ Unload Menu (OFF tout)", Callback = function() unloadScript() end });
+
+-- --- MAIN LOOP ---
+renderConn = RunService.RenderStepped:Connect(function()
+    if unloaded then return end
+    for _, d in pairs(drawingsToClean) do pcall(function() d:Remove() end) end
+    drawingsToClean = {};
+
+    if options.Speed and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local rp = LocalPlayer.Character.HumanoidRootPart;
+        local hum = LocalPlayer.Character:FindFirstChild("Humanoid");
+        if hum and hum.MoveDirection.Magnitude > 0 then
+            rp.CFrame = rp.CFrame + (hum.MoveDirection * options.SpeedVal);
+        end
+    end
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+        local hum = LocalPlayer.Character.Humanoid;
+        if options.Jump then hum.UseJumpPower = true; hum.JumpPower = options.JumpVal end
+        if options.AutoStrafe and hum.MoveDirection.Magnitude > 0 then
+            local rp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart");
+            if rp then local vel = rp.Velocity; rp.Velocity = Vector3.new(vel.X*2, vel.Y, vel.Z*2) end
+        end
+    end
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") and player.Character:FindFirstChild("HumanoidRootPart") then
+            local char = player.Character; local head = char.Head; local root = char.HumanoidRootPart;
+
+            -- FIX ESP BOX : Highlight rouge
+            if options.ESP_Box then
+                local esp = char:FindFirstChild("PoloESP");
+                if not esp then
+                    esp = Instance.new("Highlight");
+                    esp.Name = "PoloESP";
+                    esp.FillColor = Color3.fromRGB(255,0,0);
+                    esp.OutlineColor = Color3.fromRGB(255,255,255);
+                    esp.FillTransparency = 0.5;
+                    esp.OutlineTransparency = 0;
+                    esp.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop;
+                    esp.Adornee = char;
+                    esp.Parent = char;
+                else
+                    esp.FillColor = Color3.fromRGB(255,0,0);
+                    esp.Enabled = true;
+                end
+            else
+                local e = char:FindFirstChild("PoloESP"); if e then e:Destroy() end
+            end
+
+            if options.ESP_Skeleton then
+                local function df(p1,p2)
+                    if p1 and p2 then
+                        local s1,o1 = Camera:WorldToViewportPoint(p1.Position);
+                        local s2,o2 = Camera:WorldToViewportPoint(p2.Position);
+                        if o1 and o2 then table.insert(drawingsToClean, createLine(Vector2.new(s1.X,s1.Y), Vector2.new(s2.X,s2.Y), Color3.fromRGB(255,0,0))) end
+                    end
+                end
+                local up = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso");
+                local low = char:FindFirstChild("LowerTorso");
+                df(head, up); df(up, low);
+            end
+
+            if options.ESP_Line then
+                local rs, onR = Camera:WorldToViewportPoint(root.Position);
+                if onR then table.insert(drawingsToClean, createLine(Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y), Vector2.new(rs.X, rs.Y), Color3.fromRGB(255,0,0))) end
+            end
+
+            -- FIX DISTANCE ESP (manquait totalement)
+            if options.ESP_Distance then
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    local hs, onH = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,1,0));
+                    if onH then
+                        local dist = math.floor((LocalPlayer.Character.HumanoidRootPart.Position - root.Position).Magnitude);
+                        table.insert(drawingsToClean, createText(Vector2.new(hs.X, hs.Y), tostring(dist).."m", Color3.fromRGB(255,255,255)));
+                    end
+                end
+            end
+
+            if options.Hitbox then
+                head.Size = Vector3.new(options.HitboxSize, options.HitboxSize, options.HitboxSize);
+                head.Transparency = 0.5; head.CanCollide = false;
+            end
+        end
+    end
+
+    if options.Aimbot and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+        local target = getBestTarget();
+        if target and target.Character and target.Character:FindFirstChild("Head") and type(mousemoverel)=="function" then
+            local sp, onS = Camera:WorldToViewportPoint(target.Character.Head.Position);
+            if onS then local mp = UserInputService:GetMouseLocation(); pcall(function() mousemoverel((sp.X-mp.X)/options.AimbotSmooth, (sp.Y-mp.Y)/options.AimbotSmooth) end) end
+        end
+    end
+    if options.TriggerBot then
+        local t = Mouse.Target;
+        if t and t.Parent and t.Parent:FindFirstChild("Humanoid") and type(mouse1click)=="function" then pcall(function() mouse1click() end) end
+    end
+    if options.NoRecoil or options.NoSpread or options.FastReload then applyWeaponMods() end
+end);
+
+v0:Notify({ Title = "Polo Sniper Arena", Content = "ESP Fix + Unload ajouté!", Duration = 5 });
