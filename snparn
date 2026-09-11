@@ -1,7 +1,9 @@
--- [Sniper Arena - Fixed ESP + Unload]
+-- [Sniper Arena - Fixed ESP + Unload + TeamCheck Adversaires uniquement]
+-- Fix: l'aimbot / ESP / TriggerBot / Hitbox ne visent QUE les adversaires
 local v0 = loadstring(game:HttpGet("https://sirius.menu/rayfield"))();
 
 local Players = game:GetService("Players");
+local Teams = game:GetService("Teams");
 local RunService = game:GetService("RunService");
 local UserInputService = game:GetService("UserInputService");
 local HttpService = game:GetService("HttpService");
@@ -13,7 +15,8 @@ local Mouse = LocalPlayer:GetMouse();
 local CONFIG_FOLDER = "SniperArenaZC"
 local CONFIG_FILE = CONFIG_FOLDER.."/autoload.json"
 local AUTOLOAD_DEFAULT = {
-    Aimbot = false, AimbotSmooth = 1, TriggerBot = false,
+    Aimbot = false, AimbotSmooth = 3, AimbotFOV = 300, TriggerBot = false, TriggerDelay = 0.25, TriggerOnRMB = true, TeamCheck = true,
+    IgnoreFriends = true, WhitelistNames = "",
     Hitbox = false, HitboxSize = 5,
     ESP_Box = true, ESP_Skeleton = false, ESP_Line = false, ESP_Distance = false,
     VisCheck = true, NoRecoil = true, NoSpread = true, FastReload = false,
@@ -57,7 +60,15 @@ local tabConfig = v1:CreateTab("⚙️ CONFIG");
 
 tabCombat:CreateToggle({ Name = "Aimbot (Right Click)", CurrentValue = options.Aimbot, Flag = "Aimbot", Callback = function(v) options.Aimbot = v; autoSave() end });
 tabCombat:CreateSlider({ Name = "Aimbot Smoothness", Range = {1,10}, Increment = 0.1, CurrentValue = options.AimbotSmooth, Flag = "AimbotSmooth", Callback = function(v) options.AimbotSmooth = v; autoSave() end });
+tabCombat:CreateSlider({ Name = "Aimbot FOV (px)", Range = {50,1000}, Increment = 10, CurrentValue = options.AimbotFOV, Flag = "AimbotFOV", Callback = function(v) options.AimbotFOV = v; autoSave() end });
+tabCombat:CreateToggle({ Name = "Team Check (Adversaires uniquement)", CurrentValue = options.TeamCheck, Flag = "TeamCheck", Callback = function(v) options.TeamCheck = v; autoSave() end });
+tabCombat:CreateToggle({ Name = "Ignorer les Amis Roblox", CurrentValue = options.IgnoreFriends, Flag = "IgnoreFriends", Callback = function(v) options.IgnoreFriends = v; autoSave() end });
+pcall(function()
+    tabCombat:CreateInput({ Name = "Whitelist pseudos sep par ,", CurrentValue = options.WhitelistNames, Flag = "WhitelistNames", PlaceholderText = "Ex: Hugo,MonPote", RemoveTextAfterFocusLost = false, Callback = function(v) options.WhitelistNames = v; autoSave() end });
+end);
 tabCombat:CreateToggle({ Name = "Trigger Assist (Auto Fire)", CurrentValue = options.TriggerBot, Flag = "TriggerBot", Callback = function(v) options.TriggerBot = v; autoSave() end });
+tabCombat:CreateToggle({ Name = "Trigger seulement sur Clic-Droit", CurrentValue = options.TriggerOnRMB, Flag = "TriggerOnRMB", Callback = function(v) options.TriggerOnRMB = v; autoSave() end });
+tabCombat:CreateSlider({ Name = "Trigger Delai (s)", Range = {0.1,1}, Increment = 0.05, CurrentValue = options.TriggerDelay, Flag = "TriggerDelay", Callback = function(v) options.TriggerDelay = v; autoSave() end });
 tabCombat:CreateToggle({ Name = "Hitbox Expand (Big Head)", CurrentValue = options.Hitbox, Flag = "Hitbox", Callback = function(v) options.Hitbox = v; autoSave() end });
 tabCombat:CreateSlider({ Name = "Hitbox Size", Range = {1,10}, Increment = 0.1, CurrentValue = options.HitboxSize, Flag = "HitboxSize", Callback = function(v) options.HitboxSize = v; autoSave() end });
 
@@ -97,10 +108,134 @@ local function createText(pos, text, color)
     return t;
 end
 
+-- ===== FIX TEAM CHECK : adversaires uniquement =====
+-- Sniper Arena officiel = FFA (pas de Teams). Donc "teammate" = ami / whitelist.
+-- On check dans l'ordre : soi-meme > whitelist > amis > Team Roblox > Teams custom > FFA
+local function GetWhitelist()
+    local t = {}
+    if options.WhitelistNames and options.WhitelistNames ~= "" then
+        for name in string.gmatch(options.WhitelistNames, "([^,;]+)") do
+            name = name:gsub("^%s+", ""):gsub("%s+$", ""):lower()
+            if name ~= "" then t[name] = true end
+        end
+    end
+    return t
+end
+
+local function IsWhitelisted(player)
+    local wl = GetWhitelist()
+    if wl[player.Name:lower()] then return true end
+    if wl[player.DisplayName:lower()] then return true end
+    return false
+end
+
+local function IsFriend(player)
+    local ok, res = pcall(function()
+        return LocalPlayer:IsFriendsWith(player.UserId)
+    end)
+    if ok then return res end
+    return false
+end
+
+local function GetCustomTeam(player)
+    -- Check tous les endroits ou Sniper Arena / jeux customs stockent l'equipe
+    local candidates = {"Team", "Side", "Faction", "Squad", "Group", "Equipe", "Camp"}
+    for _, attr in ipairs(candidates) do
+        local ok, val = pcall(function() return player:GetAttribute(attr) end)
+        if ok and val ~= nil then return tostring(val) end
+        ok, val = pcall(function()
+            if player.Character then return player.Character:GetAttribute(attr) end
+            return nil
+        end)
+        if ok and val ~= nil then return tostring(val) end
+        ok, val = pcall(function()
+            local v = player:FindFirstChild(attr) or (player.Character and player.Character:FindFirstChild(attr))
+            if v and (v:IsA("StringValue") or v:IsA("IntValue") or v:IsA("ObjectValue")) then
+                return v.Value
+            end
+            return nil
+        end)
+        if ok and val ~= nil then return tostring(val) end
+        ok, val = pcall(function()
+            local ls = player:FindFirstChild("leaderstats")
+            if ls then
+                local v = ls:FindFirstChild(attr)
+                if v then return v.Value end
+            end
+            return nil
+        end)
+        if ok and val ~= nil then return tostring(val) end
+    end
+    return nil
+end
+
+local function IsEnemy(player)
+    if player == LocalPlayer then return false end
+    -- 0) Whitelist / Amis TOUJOURS exclus, meme si TeamCheck OFF
+    if IsWhitelisted(player) then return false end
+    if options.IgnoreFriends and IsFriend(player) then return false end
+    if not options.TeamCheck then return true end
+
+    -- 1) Check standard Roblox Team
+    local ok, res = pcall(function()
+        if LocalPlayer.Team ~= nil and player.Team ~= nil then
+            return LocalPlayer.Team ~= player.Team
+        end
+        return nil
+    end)
+    if ok and res ~= nil then return res end
+
+    -- 2) TeamColor (seulement si les 2 ont une vraie equipe, pas Neutral)
+    local ok2, res2 = pcall(function()
+        if LocalPlayer.TeamColor and player.TeamColor then
+            if LocalPlayer.Neutral or player.Neutral then return nil end -- FFA, on passe au custom
+            return LocalPlayer.TeamColor ~= player.TeamColor
+        end
+        return nil
+    end)
+    if ok2 and res2 ~= nil then return res2 end
+
+    -- 3) Teams customs (attributs / StringValue / leaderstats)
+    local lt = GetCustomTeam(LocalPlayer)
+    local pt = GetCustomTeam(player)
+    if lt ~= nil and pt ~= nil then return lt ~= pt end
+
+    -- 4) Fallback FFA : tout le monde est ennemi SAUF amis/whitelist (deja filtres)
+    return true
+end
+
+local function DebugTeams()
+    print("===== DEBUG TEAMS Sniper Arena =====")
+    pcall(function()
+        print("Local:", LocalPlayer.Name, "| Team:", tostring(LocalPlayer.Team), "| TeamColor:", tostring(LocalPlayer.TeamColor), "| Neutral:", tostring(LocalPlayer.Neutral))
+        print("Local CustomTeam:", tostring(GetCustomTeam(LocalPlayer)))
+        print("Whitelist:", tostring(options.WhitelistNames))
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                print("---", p.Name, "| Team:", tostring(p.Team), "| Color:", tostring(p.TeamColor), "| Neutral:", tostring(p.Neutral),
+                    "| Custom:", tostring(GetCustomTeam(p)),
+                    "| Friend:", tostring(IsFriend(p)),
+                    "| Whitelisted:", tostring(IsWhitelisted(p)),
+                    "| IsEnemy:", tostring(IsEnemy(p)))
+            end
+        end
+    end)
+    print("====================================")
+end
+
+local function IsAlive(player)
+    if not player.Character then return false end
+    local hum = player.Character:FindFirstChildOfClass("Humanoid")
+    if hum and hum.Health <= 0 then return false end
+    return true
+end
+-- ===================================================
+
+local triggerLastShot = 0
 local function getBestTarget()
-    local targetPlayer = nil; local bestDistance = 7100;
+    local targetPlayer = nil; local bestDistance = options.AimbotFOV or 300;
     for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+        if player ~= LocalPlayer and IsEnemy(player) and IsAlive(player) and player.Character and player.Character:FindFirstChild("Head") then
             local isVis = true;
             if options.VisCheck then
                 pcall(function()
@@ -160,6 +295,7 @@ local function unloadScript()
 end
 
 tabConfig:CreateButton({ Name = "❌ Unload Menu (OFF tout)", Callback = function() unloadScript() end });
+tabConfig:CreateButton({ Name = "Debug Teams (voir console F9)", Callback = function() DebugTeams() end });
 
 -- --- MAIN LOOP ---
 renderConn = RunService.RenderStepped:Connect(function()
@@ -186,9 +322,10 @@ renderConn = RunService.RenderStepped:Connect(function()
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") and player.Character:FindFirstChild("HumanoidRootPart") then
             local char = player.Character; local head = char.Head; local root = char.HumanoidRootPart;
+            local enemy = IsEnemy(player) and IsAlive(player)
 
-            -- FIX ESP BOX : Highlight rouge
-            if options.ESP_Box then
+            -- ESP BOX : uniquement adversaires (on nettoie les allies)
+            if options.ESP_Box and enemy then
                 local esp = char:FindFirstChild("PoloESP");
                 if not esp then
                     esp = Instance.new("Highlight");
@@ -208,54 +345,94 @@ renderConn = RunService.RenderStepped:Connect(function()
                 local e = char:FindFirstChild("PoloESP"); if e then e:Destroy() end
             end
 
-            if options.ESP_Skeleton then
-                local function df(p1,p2)
-                    if p1 and p2 then
-                        local s1,o1 = Camera:WorldToViewportPoint(p1.Position);
-                        local s2,o2 = Camera:WorldToViewportPoint(p2.Position);
-                        if o1 and o2 then table.insert(drawingsToClean, createLine(Vector2.new(s1.X,s1.Y), Vector2.new(s2.X,s2.Y), Color3.fromRGB(255,0,0))) end
+            -- Si ce n'est pas un ennemi, on ne fait ni skeleton, ni tracer, ni distance, ni hitbox
+            -- et on restaure sa tete au cas ou elle avait ete agrandie avant
+            if not enemy then
+                pcall(function()
+                    if head.Size ~= Vector3.new(2,1,1) then
+                        head.Size = Vector3.new(2,1,1); head.Transparency = 0; head.CanCollide = false
+                    end
+                end)
+            else
+                if options.ESP_Skeleton then
+                    local function df(p1,p2)
+                        if p1 and p2 then
+                            local s1,o1 = Camera:WorldToViewportPoint(p1.Position);
+                            local s2,o2 = Camera:WorldToViewportPoint(p2.Position);
+                            if o1 and o2 then table.insert(drawingsToClean, createLine(Vector2.new(s1.X,s1.Y), Vector2.new(s2.X,s2.Y), Color3.fromRGB(255,0,0))) end
+                        end
+                    end
+                    local up = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso");
+                    local low = char:FindFirstChild("LowerTorso");
+                    df(head, up); df(up, low);
+                end
+
+                if options.ESP_Line then
+                    local rs, onR = Camera:WorldToViewportPoint(root.Position);
+                    if onR then table.insert(drawingsToClean, createLine(Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y), Vector2.new(rs.X, rs.Y), Color3.fromRGB(255,0,0))) end
+                end
+
+                if options.ESP_Distance then
+                    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                        local hs, onH = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,1,0));
+                        if onH then
+                            local dist = math.floor((LocalPlayer.Character.HumanoidRootPart.Position - root.Position).Magnitude);
+                            table.insert(drawingsToClean, createText(Vector2.new(hs.X, hs.Y), tostring(dist).."m", Color3.fromRGB(255,255,255)));
+                        end
                     end
                 end
-                local up = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso");
-                local low = char:FindFirstChild("LowerTorso");
-                df(head, up); df(up, low);
-            end
 
-            if options.ESP_Line then
-                local rs, onR = Camera:WorldToViewportPoint(root.Position);
-                if onR then table.insert(drawingsToClean, createLine(Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y), Vector2.new(rs.X, rs.Y), Color3.fromRGB(255,0,0))) end
-            end
-
-            -- FIX DISTANCE ESP (manquait totalement)
-            if options.ESP_Distance then
-                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                    local hs, onH = Camera:WorldToViewportPoint(head.Position + Vector3.new(0,1,0));
-                    if onH then
-                        local dist = math.floor((LocalPlayer.Character.HumanoidRootPart.Position - root.Position).Magnitude);
-                        table.insert(drawingsToClean, createText(Vector2.new(hs.X, hs.Y), tostring(dist).."m", Color3.fromRGB(255,255,255)));
+                if options.Hitbox then
+                    head.Size = Vector3.new(options.HitboxSize, options.HitboxSize, options.HitboxSize);
+                    head.Transparency = 0.5; head.CanCollide = false;
+                else
+                    -- restaure si Hitbox OFF mais tete encore agrandie
+                    if head.Transparency == 0.5 then
+                        head.Size = Vector3.new(2,1,1); head.Transparency = 0; head.CanCollide = false
                     end
                 end
-            end
-
-            if options.Hitbox then
-                head.Size = Vector3.new(options.HitboxSize, options.HitboxSize, options.HitboxSize);
-                head.Transparency = 0.5; head.CanCollide = false;
             end
         end
     end
 
     if options.Aimbot and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
-        local target = getBestTarget();
-        if target and target.Character and target.Character:FindFirstChild("Head") and type(mousemoverel)=="function" then
-            local sp, onS = Camera:WorldToViewportPoint(target.Character.Head.Position);
-            if onS then local mp = UserInputService:GetMouseLocation(); pcall(function() mousemoverel((sp.X-mp.X)/options.AimbotSmooth, (sp.Y-mp.Y)/options.AimbotSmooth) end) end
+        -- Ne pas aim quand on tape dans un champ (whitelist) ou menu texte focus
+        local typing = false
+        pcall(function() typing = UserInputService:GetFocusedTextBox() ~= nil end)
+        if not typing then
+            local target = getBestTarget();
+            if target and target.Character and target.Character:FindFirstChild("Head") and type(mousemoverel)=="function" then
+                local sp, onS = Camera:WorldToViewportPoint(target.Character.Head.Position);
+                if onS then local mp = UserInputService:GetMouseLocation(); pcall(function() mousemoverel((sp.X-mp.X)/options.AimbotSmooth, (sp.Y-mp.Y)/options.AimbotSmooth) end) end
+            end
         end
     end
     if options.TriggerBot then
-        local t = Mouse.Target;
-        if t and t.Parent and t.Parent:FindFirstChild("Humanoid") and type(mouse1click)=="function" then pcall(function() mouse1click() end) end
+        local typing2 = false
+        pcall(function() typing2 = UserInputService:GetFocusedTextBox() ~= nil end)
+        -- Par defaut le trigger ne tire que sur clic-droit pour laisser cliquer le menu librement
+        local rmbOk = true
+        if options.TriggerOnRMB then
+            rmbOk = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+        end
+        if not typing2 and rmbOk and (os.clock() - triggerLastShot) >= (options.TriggerDelay or 0.25) then
+            local t = Mouse.Target;
+            if t and t.Parent and type(mouse1click)=="function" then
+                pcall(function()
+                    local model = t:FindFirstAncestorOfClass("Model")
+                    if model then
+                        local plr = Players:GetPlayerFromCharacter(model)
+                        -- ne tire auto que si c'est un adversaire vivant
+                        if plr and plr ~= LocalPlayer and IsEnemy(plr) and IsAlive(plr) then
+                            triggerLastShot = os.clock()
+                            mouse1click()
+                        end
+                    end
+                end)
+            end
+        end
     end
     if options.NoRecoil or options.NoSpread or options.FastReload then applyWeaponMods() end
 end);
 
-v0:Notify({ Title = "Polo Sniper Arena", Content = "ESP Fix + Unload ajouté!", Duration = 5 });
+v0:Notify({ Title = "Polo Sniper Arena", Content = "TeamCheck + Anti-Amis + Whitelist ON!", Duration = 5 });
